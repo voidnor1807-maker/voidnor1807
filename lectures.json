@@ -1,5 +1,12 @@
 [
   {
+    "slug": "proportional-control",
+    "title": "Proportional control",
+    "description": "Explain how a proportional controller sets its output, and why too much gain makes the system swing.",
+    "lang": "en",
+    "updated": "2026-11-04"
+  },
+  {
     "slug": "cellular-changes",
     "title": "Cellular changes",
     "course": "Pathophysiology",

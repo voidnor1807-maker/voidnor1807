@@ -1,0 +1,1024 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Proportional control</title>
+<meta name="description" content="Explain how a proportional controller sets its output, and why too much gain makes the system swing.">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Proportional control">
+<meta property="og:description" content="Explain how a proportional controller sets its output, and why too much gain makes the system swing.">
+<meta name="twitter:card" content="summary">
+<script>document.documentElement.className+=' js'</script>
+<style>
+
+/* ============ 1. TOKENS (config.json overrides these; nothing below hard-codes a palette) ============ */
+:root{
+  --bg:#f4f4f2; --surface:#ffffff; --surface-2:#ecece8; --ink:#1d1e24; --muted:#5d6170; --line:#dcdcd5;
+  --accent:#e4572e; --accent-ink:#ffffff; --accent-soft:color-mix(in oklab,var(--accent) 11%,var(--surface));
+  --ok:#2f8f66; --warn:#c98a12; --bad:#c2402a;
+  --floor:#e9e9e4; --iso-1:#7e8aa8; --iso-2:#c9ccd6; --iso-3:#2f3447; --iso-4:#f0b8a4; --iso-5:#5f8f7b; --iso-wire:#3a5fb0; --iso-edge:rgba(20,22,32,.62);
+  --radius:16px; --nav-w:304px; --measure:42rem; --topbar-h:54px;
+  --font-display:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Noto Naskh Arabic","Segoe UI",serif;
+  --font-body:system-ui,-apple-system,"Segoe UI","Noto Sans Arabic",Tahoma,Roboto,sans-serif;
+  --font-mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#14151a; --surface:#1c1e25; --surface-2:#252832; --ink:#ecedf1; --muted:#9aa0b0; --line:#303443;
+  --floor:#262a35; --iso-1:#8d9ab8; --iso-2:#4a5063; --iso-3:#0f1117; --iso-4:#e69a82; --iso-5:#6fb094; --iso-wire:#7fa2f2; --iso-edge:rgba(0,0,0,.7);
+  color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#14151a; --surface:#1c1e25; --surface-2:#252832; --ink:#ecedf1; --muted:#9aa0b0; --line:#303443;
+  --floor:#262a35; --iso-1:#8d9ab8; --iso-2:#4a5063; --iso-3:#0f1117; --iso-4:#e69a82; --iso-5:#6fb094; --iso-wire:#7fa2f2; --iso-edge:rgba(0,0,0,.7);
+  color-scheme:dark;}
+:root{--accent:#c2410c}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--accent:#fb923c;--accent-ink:#1c1d22}}
+:root[data-theme="dark"]{--accent:#fb923c;--accent-ink:#1c1d22}
+
+
+/* ============ 2. BASE ============ */
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 clamp(16px,.35vw + 15px,18.5px)/1.75 var(--font-body);text-rendering:optimizeLegibility}
+:where(h1,h2,h3,h4){font-family:var(--font-display);line-height:1.18;letter-spacing:-.01em;margin:0 0 .5em;text-wrap:balance}
+h1{font-size:clamp(2.1rem,4.6vw,3.6rem);font-weight:700}
+h2{font-size:clamp(1.6rem,2.8vw,2.25rem);font-weight:700;margin-top:0}
+h3{font-size:clamp(1.2rem,1.8vw,1.45rem);font-weight:650}
+p{margin:0 0 1.1em;text-wrap:pretty}
+a{color:var(--accent);text-underline-offset:3px}
+code,kbd{font-family:var(--font-mono);font-size:.88em;background:var(--surface-2);padding:.12em .4em;border-radius:6px}
+:focus-visible{outline:2.5px solid var(--accent);outline-offset:2px;border-radius:6px}
+button{font:inherit;color:inherit}
+[hidden]{display:none!important}
+
+/* ============ 3. SHELL: topbar + collapsible nav + content ============ */
+.topbar{position:sticky;top:0;z-index:30;height:var(--topbar-h);display:flex;align-items:center;gap:12px;padding-inline:14px;background:var(--bg);background:color-mix(in oklab,var(--bg) 88%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.topbar .t-title{font:600 .92rem var(--font-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;color:var(--muted)}
+.icon-btn{width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--surface);display:grid;place-items:center;cursor:pointer;flex:none}
+.icon-btn:hover{border-color:var(--accent)}
+.icon-btn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round}
+.progress{position:absolute;inset-inline:0;bottom:-1px;height:2px;background:transparent}
+.progress i{display:block;height:100%;width:0;background:var(--accent);transform-origin:left}
+[dir="rtl"] .progress i{transform-origin:right}
+.app{display:grid;grid-template-columns:var(--nav-w) minmax(0,1fr);align-items:start}
+.nav{position:sticky;top:var(--topbar-h);height:calc(100vh - var(--topbar-h));height:calc(100dvh - var(--topbar-h));overflow:auto;padding:22px 14px 40px 18px;border-inline-end:1px solid var(--line);background:var(--bg);overscroll-behavior:contain}
+.nav h2{font:700 .72rem var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 12px 6px}
+.nav ol{list-style:none;margin:0;padding:0}
+.nav a{display:block;padding:7px 10px;border-radius:9px;color:var(--ink);text-decoration:none;font-size:.92rem;line-height:1.35;border-inline-start:2px solid transparent}
+.nav a:hover{background:var(--surface-2)}
+.nav a[aria-current="true"]{background:var(--accent-soft);border-inline-start-color:var(--accent);font-weight:600}
+.nav ol ol{margin-inline-start:14px}
+.nav ol ol a{font-size:.85rem;color:var(--muted)}
+body.nav-collapsed .app{grid-template-columns:0 minmax(0,1fr)}
+body.nav-collapsed .nav{visibility:hidden;padding:0;border:0;overflow:hidden}
+.scrim{display:none}
+@media (max-width:920px){
+  .app{grid-template-columns:minmax(0,1fr)!important}
+  .nav{position:fixed;z-index:40;top:0;height:100vh;height:100dvh;inset-inline-start:0;width:min(86vw,340px);transform:translateX(-102%);transition:transform .25s ease;visibility:visible!important;padding:calc(var(--topbar-h) + 8px) 14px 40px 18px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+  [dir="rtl"] .nav{transform:translateX(102%)}
+  body.nav-open .nav{transform:none}
+  body.nav-open .scrim{display:block;position:fixed;inset:0;z-index:35;background:rgba(10,10,16,.45)}
+}
+main{padding:clamp(20px,4.5vw,64px) clamp(16px,4vw,56px) 40px}
+section{scroll-margin-top:calc(var(--topbar-h) + 18px);padding-block:clamp(28px,5vw,64px);border-top:1px solid var(--line)}
+section:first-of-type{border-top:0}
+main>section{max-width:1100px;margin-inline:auto}
+section>:not(.figure):not(.wide){max-width:var(--measure);margin-inline:0}
+section>.figure{max-width:1100px;margin-inline:0}
+.eyebrow{font:600 .74rem var(--font-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:.8em}
+
+/* ============ 4. HERO ============ */
+.hero{padding-block:clamp(24px,6vw,84px) clamp(16px,3vw,40px);border:0}
+.hero>*{max-width:none!important}
+.hero h1{max-width:18ch!important}
+.hero .lede{font-size:clamp(1.05rem,1.4vw,1.3rem);color:var(--muted);max-width:36rem!important}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.chip{font:500 .78rem var(--font-mono);padding:5px 11px;border-radius:99px;border:1px solid var(--line);background:var(--surface);color:var(--muted)}
+.chip b{color:var(--ink);font-weight:600}
+
+/* ============ 5. CONTENT COMPONENTS ============ */
+.keypoint{background:var(--accent-soft);border-inline-start:4px solid var(--accent);border-radius:4px var(--radius) var(--radius) 4px;padding:18px 22px;margin-block:1.6em;font-family:var(--font-display);font-size:1.18em;line-height:1.5}
+[dir="rtl"] .keypoint{border-radius:var(--radius) 4px 4px var(--radius)}
+.keypoint .k{display:block;font:700 .68rem var(--font-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:6px}
+.def{display:grid;gap:2px;padding:14px 18px;border:1px solid var(--line);border-radius:12px;background:var(--surface);margin-block:1.2em}
+.def dt{font:700 1rem var(--font-display)}
+.def dd{margin:0;color:var(--muted)}
+.def .src-chip{justify-self:start;margin-inline-start:0}
+.formula{font:500 1.1rem var(--font-mono);text-align:center;padding:16px;margin-block:1.4em;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow-x:auto;direction:ltr}
+.callout{padding:14px 18px;border-radius:12px;border:1px solid var(--line);background:var(--surface);margin-block:1.4em}
+.callout.beyond{border-style:dashed;background:transparent}
+.callout .k{font:700 .68rem var(--font-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:4px}
+.illustrative{border-bottom:1px dotted var(--muted)}
+ul.steps{padding-inline-start:1.2em}
+ul.steps li{margin-bottom:.5em}
+.recap{margin-top:2em;padding:20px 24px;border-radius:var(--radius);background:var(--ink);color:var(--bg)}
+.recap h3{color:inherit;font-size:1.05rem;margin-bottom:.6em}
+.recap ul{margin:0;padding-inline-start:1.1em}
+.src-chip{all:unset;cursor:pointer;display:inline-block;vertical-align:baseline;margin-inline-start:.45em;font:600 .64rem var(--font-mono);letter-spacing:.02em;padding:1px 7px;border-radius:99px;border:1px solid var(--line);color:var(--muted);background:var(--surface);line-height:1.7;white-space:nowrap}
+.src-chip:hover,.src-chip:focus-visible{border-color:var(--accent);color:var(--accent)}
+
+/* ============ 6. INTERACTIVE FIGURE (the "proof") ============ */
+.figure{margin-block:2.2em;background:var(--surface);border:1px solid var(--line);border-radius:calc(var(--radius) + 4px);overflow:hidden;box-shadow:0 1px 0 var(--line),0 24px 48px -32px rgba(20,22,32,.35)}
+.fig-head{padding:18px 22px 4px}
+.fig-head .eyebrow{margin:0 0 .5em}
+.fig-head h3{margin:0;max-width:34ch}
+.predict{margin:10px 22px 0;padding:14px 16px;border-radius:12px;background:var(--surface-2)}
+.predict-q{margin:0 0 10px;font-size:.98rem;line-height:1.5}
+.predict-k{font:700 .66rem var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin-inline-end:8px}
+.predict-opts{display:flex;flex-wrap:wrap;gap:8px}
+.predict-opts button{padding:7px 14px;border-radius:99px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-size:.92rem}
+.predict-opts button:hover:not(:disabled){border-color:var(--accent)}
+.predict-opts button[data-ok="true"]:disabled{border-color:var(--ok);background:color-mix(in oklab,var(--ok) 14%,var(--surface))}
+.predict-opts button[data-picked="true"][data-ok="false"]{border-color:var(--bad);background:color-mix(in oklab,var(--bad) 12%,var(--surface))}
+.predict-why{margin:10px 0 0;font-size:.92rem;color:var(--muted)}
+.stage{margin:14px 12px 0;border-radius:12px;background:var(--bg);background-image:radial-gradient(color-mix(in oklab,var(--ink) 14%,transparent) 1px,transparent 1px);background-size:18px 18px;overflow:hidden;position:relative}
+.info{margin:0 22px;padding:10px 0 0;font-size:.9rem;display:flex;gap:10px;flex-wrap:wrap;align-items:baseline;min-height:2.4em}
+.info strong{font-family:var(--font-display)}
+.info span{color:var(--muted)}
+.controls{display:flex;flex-wrap:wrap;gap:14px 22px;align-items:end;padding:14px 22px 6px}
+.ctl{display:grid;gap:6px;min-width:150px;flex:1 1 190px;max-width:320px}
+.ctl-name{font:600 .72rem var(--font-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.ctl-slider label{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+.ctl-val{font:600 .95rem var(--font-mono);color:var(--ink)}
+.ctl-val.big{font-size:1.25rem}
+input[type=range]{width:100%;height:28px;margin:0;appearance:none;-webkit-appearance:none;background:transparent;cursor:pointer}
+input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:99px;background:linear-gradient(to right,var(--accent) var(--p,0%),var(--line) var(--p,0%))}
+input[type=range]::-moz-range-track{height:6px;border-radius:99px;background:var(--line)}
+input[type=range]::-moz-range-progress{height:6px;border-radius:99px;background:var(--accent)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;margin-top:-8px;border-radius:50%;background:var(--surface);border:2px solid var(--accent);box-shadow:0 2px 6px rgba(0,0,0,.25)}
+input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--surface);border:2px solid var(--accent)}
+.seg{display:inline-flex;padding:3px;border-radius:11px;background:var(--surface-2);gap:2px;flex-wrap:wrap}
+.seg button{border:0;background:transparent;padding:6px 13px;border-radius:8px;cursor:pointer;font-size:.9rem}
+.seg button[aria-checked="true"]{background:var(--surface);box-shadow:0 1px 3px rgba(0,0,0,.2);font-weight:600}
+.ctl-toggle label{display:flex;align-items:center;gap:10px;cursor:pointer}
+.ctl-toggle input{position:absolute;opacity:0;width:1px;height:1px}
+.sw{width:40px;height:23px;border-radius:99px;background:var(--line);position:relative;transition:background .2s;flex:none}
+.sw::after{content:"";position:absolute;top:3px;inset-inline-start:3px;width:17px;height:17px;border-radius:50%;background:var(--surface);box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .2s}
+.ctl-toggle input:checked+.sw{background:var(--accent)}
+.ctl-toggle input:checked+.sw::after{transform:translateX(17px)}
+[dir="rtl"] .ctl-toggle input:checked+.sw::after{transform:translateX(-17px)}
+.ctl-toggle input:focus-visible+.sw{outline:2.5px solid var(--accent);outline-offset:2px}
+.ctl-read{flex:1 1 240px;max-width:380px;padding:8px 14px;border-radius:12px;background:var(--surface-2);border-inline-start:4px solid var(--line)}
+.ctl-read[data-state="ok"]{border-inline-start-color:var(--ok)}
+.ctl-read[data-state="warn"]{border-inline-start-color:var(--warn)}
+.ctl-read[data-state="bad"]{border-inline-start-color:var(--bad)}
+.ctl-read[data-state="hot"]{border-inline-start-color:var(--accent);background:var(--accent-soft)}
+.btn{padding:9px 16px;border-radius:11px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-weight:600;font-size:.9rem}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.notice{padding:6px 22px 4px}
+.notice-list{list-style:none;margin:0;padding:0;display:grid;gap:6px;font-size:.92rem}
+.notice-list li{display:flex;gap:10px;align-items:flex-start;color:var(--muted)}
+.notice-list .tick{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--line);flex:none;margin-top:3px;display:grid;place-items:center}
+.notice-list li[data-done="true"]{color:var(--ink)}
+.notice-list li[data-done="true"] .tick{background:var(--ok);border-color:var(--ok)}
+.notice-list li[data-done="true"] .tick::after{content:"";width:5px;height:9px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg) translate(-1px,-1px)}
+.figure figcaption{padding:12px 22px 20px;color:var(--muted);font-size:.93rem;line-height:1.6}
+.fig-fail{padding:24px;color:var(--muted);font-size:.95rem}
+/* Baked snapshot: what viewers without JavaScript show. initFigure replaces it when scripts run. */
+.fig-static{padding:18px 22px 4px}
+.fig-static h3{margin:0 0 12px}
+.fig-static svg{display:block;width:100%;height:auto;border-radius:12px;background:var(--bg)}
+.fig-note{margin:10px 0 0;color:var(--muted);font-size:.9rem}
+/* Static diagrams (made with the diagram-design skill): a wide SVG scrolls inside its own box on a phone. */
+.diagram{margin:2.2em 0;max-width:1100px}
+.diagram-scroll{overflow-x:auto}
+.diagram svg{display:block;width:100%;height:auto}
+.diagram figcaption{padding-top:10px;color:var(--muted);font-size:.93rem;line-height:1.6}
+/* Viewers without JavaScript: hide dead buttons and show the contents list in the page flow. */
+html:not(.js) #navBtn,html:not(.js) #themeBtn,html:not(.js) .progress{display:none}
+@media (max-width:920px){html:not(.js) .nav{position:static;height:auto;width:auto;transform:none;box-shadow:none;border-inline-end:0;border-bottom:1px solid var(--line);padding:16px}}
+
+/* ============ 7. SOURCE DRAWER + FOOTER ============ */
+dialog:not([open]){display:none}
+dialog.src{border:1px solid var(--line);border-radius:var(--radius);padding:0;max-width:min(640px,92vw);background:var(--surface);color:var(--ink);box-shadow:0 30px 80px rgba(0,0,0,.35)}
+dialog.src::backdrop{background:rgba(10,10,16,.5)}
+.src-in{padding:20px 22px 18px}
+.src-in h4{font:700 .72rem var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 12px}
+.src-item{padding:12px 14px;border-radius:12px;background:var(--surface-2);margin-bottom:10px;font-size:.95rem;line-height:1.65;white-space:pre-wrap}
+.src-item mark{background:color-mix(in oklab,var(--accent) 28%,transparent);color:inherit;border-radius:3px;padding:0 2px}
+.src-foot{display:flex;justify-content:flex-end}
+.trim-log{max-width:1100px;margin:40px auto 0}
+.trim-log details{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.trim-log summary{cursor:pointer;padding:14px 18px;font:600 .95rem var(--font-body);list-style:none;display:flex;gap:12px;flex-wrap:wrap;align-items:baseline}
+.trim-log summary::-webkit-details-marker{display:none}
+.trim-log summary::before{content:"+";font:700 1.1rem var(--font-mono);color:var(--accent)}
+.trim-log details[open] summary::before{content:"\2212"}
+.trim-log summary span{font:500 .8rem var(--font-mono);color:var(--muted)}
+.trim-note{margin:0;padding:0 18px 10px;color:var(--muted);font-size:.9rem}
+.trim-item{padding:12px 18px;border-top:1px solid var(--line)}
+.trim-item .loc{font:600 .7rem var(--font-mono);color:var(--accent);display:block;margin-bottom:4px}
+.trim-item .jc{color:var(--warn);margin-inline-start:8px}
+.trim-item p{white-space:pre-line;margin:0 0 4px;font-size:.92rem;line-height:1.6;color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in oklab,var(--muted) 45%,transparent)}
+.trim-item .why{font-size:.85rem}
+.src-item .badge{display:block;font:600 .68rem var(--font-mono);letter-spacing:.04em;color:var(--muted);margin-bottom:6px}
+.credit{max-width:1100px;margin:30px auto 0;padding:22px 0 8px;border-top:1px solid var(--line);font:500 .8rem var(--font-mono);color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:space-between}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important}}
+@media print{.topbar,.nav,.scrim,.controls,.predict{display:none!important}.app{display:block}.figure,.diagram{break-inside:avoid;box-shadow:none}.diagram-scroll{overflow:visible}.diagram svg{min-width:0!important}body{background:#fff}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <button class="icon-btn" id="navBtn" aria-label="Contents" aria-controls="nav" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg></button>
+  <div class="t-title">Proportional control</div>
+  <button class="icon-btn" id="themeBtn" aria-label="Toggle light / dark"><svg viewBox="0 0 24 24"><path d="M21 13.2A8.5 8.5 0 1 1 10.8 3a6.8 6.8 0 0 0 10.2 10.2z"/></svg></button>
+  <div class="progress"><i id="bar"></i></div>
+</header>
+<div class="scrim" id="scrim"></div>
+<div class="app">
+  <nav class="nav" id="nav" aria-label="Contents"><h2>Contents</h2><ol id="navList"><li><a href="#error">Error</a></li><li><a href="#proportional-term">The proportional term</a></li><li><a href="#too-high">When the gain is too high</a></li><li><a href="#choosing-gain">Choosing the gain</a></li><li><a href="#definitions">Definitions</a></li></ol></nav>
+  <main id="main">
+<section class="hero" id="top" data-nav="Proportional control"><div class="eyebrow">Interactive lecture</div><h1>Proportional control</h1><p class="lede">Explain how a proportional controller sets its output, and why too much gain makes the system swing.</p><div class="chips"><span class="chip"><b>1</b> interactive proof</span><span class="chip"><b>5</b> sections</span></div></section>
+<section id="error" data-nav="Error">
+  <div class="eyebrow">Part 1</div>
+  <h2>A controller acts on the error</h2>
+  <p data-src="S3" data-quote="compares a measured value with a target value">A controller compares a measured value with a target value and decides how hard to push the system. The difference between the target and the measured value is called the error.</p>
+  <div class="formula" data-src="S4">error = target minus measured</div>
+  <p data-src="S4">If the target is 50 degrees and the room is at 42 degrees, the error is 8 degrees.</p>
+  <p data-nosrc>The next question is how hard to push for a given error.</p>
+</section>
+
+<section id="proportional-term" data-nav="The proportional term">
+  <div class="eyebrow">Part 2</div>
+  <h2>The output grows in step with the error</h2>
+  <p data-src="S5" data-quote="sets its output proportional to the error">A proportional controller sets its output proportional to the error. The factor between them, Kp, is called the proportional gain.</p>
+  <div class="formula" data-src="S5">output = Kp × error</div>
+  <p data-src="S6" data-quote="volume knob">You can think of Kp as a volume knob. A bigger Kp means a louder response to the same error: the louder the response, the harder the heater pushes.</p>
+  <p data-src="S8">With Kp = 2 and an error of 8 degrees, the output is 16 units of heater power. With Kp = 5 the same error gives 40 units.</p>
+  <div class="keypoint" data-src="S9"><span class="k">Key point</span>A larger gain makes the system react faster, but only up to a point.</div>
+  <p data-nosrc>That limit is the subject of the next part.</p>
+</section>
+
+<section id="too-high" data-nav="When the gain is too high">
+  <div class="eyebrow">Part 3</div>
+  <h2>Too much gain makes the system swing</h2>
+  <p data-src="S10" data-quote="overshoots the target">If the gain is too high the system overshoots the target and starts to oscillate around it.</p>
+  <div class="callout" data-src="S10"><span class="k">Warning</span>In a real heater this can damage the equipment, so never raise the gain without a safety limit. This will be on the exam.</div>
+
+  <figure class="figure" data-figure="gain-sweep" data-src="S4,S5,S10,S13" data-title="Raise the gain: the response speeds up, then starts to swing" data-kicker="Interactive proof"><div class="fig-static"><h3>Raise the gain: the response speeds up, then starts to swing</h3><svg viewBox="0 0 480 320" role="img" aria-label="Temperature over time for the chosen gain, with the 50 degree target marked"><path d="M36,286H468M36,286V40" style="stroke:var(--muted);fill:none"></path><line x1="36" x2="468" y1="163" y2="163" style="stroke:var(--ink);stroke-dasharray:6 5"></line><text x="36" y="20" style="fill:var(--ink);font:600 15px var(--font-body)">Dashed line: target, 50 degrees. Start: 42.</text><path d="M36.0,224.5L37.1,224.5L38.2,224.5L39.2,224.5L40.3,224.5L41.4,224.5L42.5,224.5L43.6,224.5L44.6,224.5L45.7,224.5L46.8,224.5L47.9,218.5L49.0,212.4L50.0,206.4L51.1,200.3L52.2,194.3L53.3,188.3L54.4,182.2L55.4,176.2L56.5,170.2L57.6,164.1L58.7,158.4L59.8,153.2L60.8,148.6L61.9,144.6L63.0,141.2L64.1,138.4L65.2,136.2L66.2,134.6L67.3,133.5L68.4,133.1L69.5,133.2L70.6,133.9L71.6,135.1L72.7,136.7L73.8,138.7L74.9,140.9L76.0,143.4L77.0,146.2L78.1,149.0L79.2,151.9L80.3,154.9L81.4,157.7L82.4,160.6L83.5,163.2L84.6,165.7L85.7,168.0L86.8,170.1L87.8,171.9L88.9,173.4L90.0,174.6L91.1,175.6L92.2,176.3L93.2,176.7L94.3,176.8L95.4,176.7L96.5,176.3L97.6,175.7L98.6,174.9L99.7,174.0L100.8,172.9L101.9,171.7L103.0,170.4L104.0,169.1L105.1,167.8L106.2,166.4L107.3,165.1L108.4,163.8L109.4,162.6L110.5,161.5L111.6,160.4L112.7,159.5L113.8,158.7L114.8,158.0L115.9,157.5L117.0,157.1L118.1,156.8L119.2,156.7L120.2,156.6L121.3,156.7L122.4,156.9L123.5,157.2L124.6,157.6L125.6,158.1L126.7,158.6L127.8,159.1L128.9,159.7L130.0,160.3L131.0,161.0L132.1,161.6L133.2,162.2L134.3,162.8L135.4,163.3L136.4,163.8L137.5,164.3L138.6,164.7L139.7,165.1L140.8,165.4L141.8,165.6L142.9,165.8L144.0,165.9L145.1,165.9L146.2,165.9L147.2,165.9L148.3,165.8L149.4,165.6L150.5,165.4L151.6,165.2L152.6,165.0L153.7,164.7L154.8,164.4L155.9,164.2L157.0,163.9L158.0,163.6L159.1,163.3L160.2,163.0L161.3,162.8L162.4,162.6L163.4,162.4L164.5,162.2L165.6,162.0L166.7,161.9L167.8,161.8L168.8,161.7L169.9,161.7L171.0,161.6L172.1,161.7L173.2,161.7L174.2,161.7L175.3,161.8L176.4,161.9L177.5,162.0L178.6,162.1L179.6,162.2L180.7,162.4L181.8,162.5L182.9,162.6L184.0,162.8L185.0,162.9L186.1,163.0L187.2,163.1L188.3,163.2L189.4,163.3L190.4,163.4L191.5,163.5L192.6,163.5L193.7,163.6L194.8,163.6L195.8,163.6L196.9,163.6L198.0,163.6L199.1,163.6L200.2,163.6L201.2,163.5L202.3,163.5L203.4,163.4L204.5,163.4L205.6,163.3L206.6,163.3L207.7,163.2L208.8,163.2L209.9,163.1L211.0,163.0L212.0,163.0L213.1,162.9L214.2,162.9L215.3,162.8L216.4,162.8L217.4,162.8L218.5,162.8L219.6,162.7L220.7,162.7L221.8,162.7L222.8,162.7L223.9,162.7L225.0,162.7L226.1,162.7L227.2,162.8L228.2,162.8L229.3,162.8L230.4,162.8L231.5,162.9L232.6,162.9L233.6,162.9L234.7,162.9L235.8,163.0L236.9,163.0L238.0,163.0L239.0,163.0L240.1,163.1L241.2,163.1L242.3,163.1L243.4,163.1L244.4,163.1L245.5,163.1L246.6,163.1L247.7,163.1L248.8,163.1L249.8,163.1L250.9,163.1L252.0,163.1L253.1,163.1L254.2,163.1L255.2,163.1L256.3,163.1L257.4,163.1L258.5,163.1L259.6,163.0L260.6,163.0L261.7,163.0L262.8,163.0L263.9,163.0L265.0,163.0L266.0,163.0L267.1,163.0L268.2,163.0L269.3,162.9L270.4,162.9L271.4,162.9L272.5,162.9L273.6,162.9L274.7,162.9L275.8,162.9L276.8,162.9L277.9,162.9L279.0,163.0L280.1,163.0L281.2,163.0L282.2,163.0L283.3,163.0L284.4,163.0L285.5,163.0L286.6,163.0L287.6,163.0L288.7,163.0L289.8,163.0L290.9,163.0L292.0,163.0L293.0,163.0L294.1,163.0L295.2,163.0L296.3,163.0L297.4,163.0L298.4,163.0L299.5,163.0L300.6,163.0L301.7,163.0L302.8,163.0L303.8,163.0L304.9,163.0L306.0,163.0L307.1,163.0L308.2,163.0L309.2,163.0L310.3,163.0L311.4,163.0L312.5,163.0L313.6,163.0L314.6,163.0L315.7,163.0L316.8,163.0L317.9,163.0L319.0,163.0L320.0,163.0L321.1,163.0L322.2,163.0L323.3,163.0L324.4,163.0L325.4,163.0L326.5,163.0L327.6,163.0L328.7,163.0L329.8,163.0L330.8,163.0L331.9,163.0L333.0,163.0L334.1,163.0L335.2,163.0L336.2,163.0L337.3,163.0L338.4,163.0L339.5,163.0L340.6,163.0L341.6,163.0L342.7,163.0L343.8,163.0L344.9,163.0L346.0,163.0L347.0,163.0L348.1,163.0L349.2,163.0L350.3,163.0L351.4,163.0L352.4,163.0L353.5,163.0L354.6,163.0L355.7,163.0L356.8,163.0L357.8,163.0L358.9,163.0L360.0,163.0L361.1,163.0L362.2,163.0L363.2,163.0L364.3,163.0L365.4,163.0L366.5,163.0L367.6,163.0L368.6,163.0L369.7,163.0L370.8,163.0L371.9,163.0L373.0,163.0L374.0,163.0L375.1,163.0L376.2,163.0L377.3,163.0L378.4,163.0L379.4,163.0L380.5,163.0L381.6,163.0L382.7,163.0L383.8,163.0L384.8,163.0L385.9,163.0L387.0,163.0L388.1,163.0L389.2,163.0L390.2,163.0L391.3,163.0L392.4,163.0L393.5,163.0L394.6,163.0L395.6,163.0L396.7,163.0L397.8,163.0L398.9,163.0L400.0,163.0L401.0,163.0L402.1,163.0L403.2,163.0L404.3,163.0L405.4,163.0L406.4,163.0L407.5,163.0L408.6,163.0L409.7,163.0L410.8,163.0L411.8,163.0L412.9,163.0L414.0,163.0L415.1,163.0L416.2,163.0L417.2,163.0L418.3,163.0L419.4,163.0L420.5,163.0L421.6,163.0L422.6,163.0L423.7,163.0L424.8,163.0L425.9,163.0L427.0,163.0L428.0,163.0L429.1,163.0L430.2,163.0L431.3,163.0L432.4,163.0L433.4,163.0L434.5,163.0L435.6,163.0L436.7,163.0L437.8,163.0L438.8,163.0L439.9,163.0L441.0,163.0L442.1,163.0L443.2,163.0L444.2,163.0L445.3,163.0L446.4,163.0L447.5,163.0L448.6,163.0L449.6,163.0L450.7,163.0L451.8,163.0L452.9,163.0L454.0,163.0L455.0,163.0L456.1,163.0L457.2,163.0L458.3,163.0L459.4,163.0L460.4,163.0L461.5,163.0L462.6,163.0L463.7,163.0L464.8,163.0L465.8,163.0L466.9,163.0L468.0,163.0" style="stroke:var(--accent);stroke-width:3;fill:none;stroke-linejoin:round"></path><text x="252" y="310" text-anchor="middle" style="fill:var(--muted);font:500 15px var(--font-body)">Time</text><text transform="translate(20 163) rotate(-90)" text-anchor="middle" style="fill:var(--muted);font:500 15px var(--font-body)">Temperature</text></svg><p class="fig-note">Static view. Open this file in a browser for the live version.</p></div>
+    <figcaption>The room starts at 42 degrees and the target is 50. The shape of the curve is illustrative, so time has no units. The start, the target, the output and the gain at which oscillation begins come from the lecture.</figcaption>
+  </figure>
+
+  <p data-src="S11">Here is why it happens. The controller pushes hard because the gain is high, and the system gets past the target because of its inertia. Now the error has the opposite sign, so the controller pushes back just as hard. This repeats, and the temperature swings above and below the target.</p>
+
+  <figure class="diagram wide" data-src="S4,S11">
+    <div class="diagram-scroll">
+      <svg viewBox="0 0 320 384" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="swing-title swing-desc" style="min-width:320px;max-width:480px">
+        <title id="swing-title">Why a high gain keeps swinging</title>
+        <desc id="swing-desc">The temperature moves between below the target and above the target. Inertia carries it past the target in each direction, and the error changes sign each time.</desc>
+        <defs>
+          <pattern id="swing-dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="0.9" fill="rgba(45,49,66,0.10)"/></pattern>
+          <marker id="swing-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+          <marker id="swing-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#bf4520"/></marker>
+        </defs>
+        <rect width="320" height="384" fill="#f5f5f5"/>
+        <rect width="320" height="384" fill="url(#swing-dots)" opacity="0.55"/>
+
+        <line x1="160" y1="32" x2="160" y2="60" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#swing-arrow)"/>
+        <path d="M240 100 C300 100, 300 320, 240 320" fill="none" stroke="#bf4520" stroke-width="1.4" marker-end="url(#swing-arrow-accent)"/>
+        <path d="M80 320 C20 320, 20 100, 80 100" fill="none" stroke="#bf4520" stroke-width="1.4" marker-end="url(#swing-arrow-accent)"/>
+
+        <rect x="218" y="202" width="60" height="16" rx="2" fill="#f5f5f5"/>
+        <text x="248" y="214" fill="#bf4520" font-size="10" font-family="ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">INERTIA</text>
+        <rect x="42" y="202" width="60" height="16" rx="2" fill="#f5f5f5"/>
+        <text x="72" y="214" fill="#bf4520" font-size="10" font-family="ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">INERTIA</text>
+
+        <circle cx="160" cy="24" r="6" fill="#2d3142"/>
+        <text x="176" y="28" fill="#4f5d75" font-size="10" font-family="ui-monospace, monospace">start</text>
+
+        <rect x="80" y="60" width="160" height="80" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <text x="160" y="92" fill="#2d3142" font-size="14" font-weight="600" font-family="system-ui, sans-serif" text-anchor="middle">Below target</text>
+        <text x="160" y="110" fill="#4f5d75" font-size="10" font-family="ui-monospace, monospace" text-anchor="middle">error is positive</text>
+        <text x="160" y="124" fill="#4f5d75" font-size="10" font-family="ui-monospace, monospace" text-anchor="middle">controller pushes hard</text>
+
+        <rect x="80" y="280" width="160" height="80" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <text x="160" y="312" fill="#2d3142" font-size="14" font-weight="600" font-family="system-ui, sans-serif" text-anchor="middle">Above target</text>
+        <text x="160" y="330" fill="#4f5d75" font-size="10" font-family="ui-monospace, monospace" text-anchor="middle">error has opposite sign</text>
+        <text x="160" y="344" fill="#4f5d75" font-size="10" font-family="ui-monospace, monospace" text-anchor="middle">pushes back just as hard</text>
+      </svg>
+    </div>
+    <figcaption>Each push carries the system past the target, which sets up the next push in the other direction.</figcaption>
+  </figure>
+
+  <p data-src="S11" data-quote="the amount by which the system passes the target">The overshoot, then, is the amount by which the system passes the target, and oscillation is the repeated swing.</p>
+  <p data-nosrc>So the gain has to stop short of that swing, which leaves the question of how to choose it.</p>
+</section>
+
+<section id="choosing-gain" data-nav="Choosing the gain">
+  <div class="eyebrow">Part 4</div>
+  <h2>Engineers pick the gain by trial</h2>
+  <p data-src="S13">In practice, engineers pick Kp by trial:</p>
+  <ul class="steps" data-src="S13">
+    <li>Start with a low Kp.</li>
+    <li>Raise it until the response is fast.</li>
+    <li>Stop just before oscillation begins.</li>
+  </ul>
+  <p data-src="S13" data-quote="oscillation starts at about Kp = 8">For the heater in the lab, oscillation starts at about Kp = 8.</p>
+  <div class="recap">
+    <h3>What you can now explain</h3>
+    <ul>
+      <li>How a controller gets the error from the target and the measured value.</li>
+      <li>How the gain turns the error into an output.</li>
+      <li>Why too much gain causes overshoot and oscillation.</li>
+      <li>How to choose a gain safely.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="definitions" data-nav="Definitions">
+  <h2>Definitions</h2>
+  <dl class="def" data-src="S3" data-quote="compares a measured value with a target value"><dt>Controller</dt><dd>Compares a measured value with a target value and decides how hard to push the system.</dd></dl>
+  <dl class="def" data-src="S3" data-quote="difference between the target and the measured value"><dt>Error</dt><dd>The difference between the target and the measured value.</dd></dl>
+  <dl class="def" data-src="S5" data-quote="proportional gain"><dt>Proportional gain</dt><dd>Kp, the factor in output = Kp × error.</dd></dl>
+  <dl class="def" data-src="S11" data-quote="the amount by which the system passes the target"><dt>Overshoot</dt><dd>The amount by which the system passes the target.</dd></dl>
+  <dl class="def" data-src="S11" data-quote="the repeated swing"><dt>Oscillation</dt><dd>The repeated swing above and below the target.</dd></dl>
+</section>
+
+<aside class="trim-log" data-trim><details><summary>What was trimmed <span>7 kept as is · 2 reworded · 5 cut</span></summary><p class="trim-note">Everything cut from the lecture is listed here with the reason, so nothing is hidden.</p><div class="trim-item"><span class="loc">Filler</span><p>Lecture 5: Proportional control
+Good morning everyone, welcome back. I hope you all had a good weekend. Let&#x27;s get started.</p><span class="why">greeting and agenda; the page&#x27;s contents list does this job</span></div><div class="trim-item"><span class="loc">Filler</span><p>Today we are going to talk about proportional control. In this lecture we will first look at what a controller is, then at the proportional term, and then at what happens when the gain is too high.</p><span class="why">greeting and agenda; the page&#x27;s contents list does this job</span></div><div class="trim-item"><span class="loc">Digression <b class="jc">Judgment call</b></span><p>When I was a student, my professor had a very old amplifier in his office, it was a wonderful machine, made in the 1970s, and he used to say that you could hear the whole building through it. Anyway.</p><span class="why">story about the professor&#x27;s amplifier, no course content — 1970s dates the amplifier in a story; nothing to learn from it</span></div><div class="trim-item"><span class="loc">Redundant</span><p>So to summarise: high gain leads to overshoot and oscillation because the system&#x27;s inertia carries it past the target.</p><span class="why">summary of what S11 just explained</span></div><div class="trim-item"><span class="loc">Admin <b class="jc">Judgment call</b></span><p>Right, I see we are running out of time. Next week we will look at the integral term. Please read chapter 4 before then. Any questions? No? Then see you next week.</p><span class="why">sign-off, next week&#x27;s topic and reading — no course content; the integral term and chapter 4 are next week&#x27;s material</span></div></details></aside>
+    <footer class="credit"><span>Test lecture for the lecture skill, built from its sample text</span><span>Works offline</span></footer>
+  </main>
+</div>
+<dialog class="src" id="srcDlg"><div class="src-in"><h4>From the lecture</h4><div id="srcBody"></div><div class="src-foot"><button class="btn" id="srcClose">Close</button></div></div></dialog>
+
+<script>
+/*! iso-kit v1 — dependency-free isometric scenes + small UI helpers for self-contained lecture pages.
+ *  Projection: screen.x = ox + (x - y) * cos30 * s ;  screen.y = oy + (x + y) * 0.5 * s - z * s
+ *  +x runs right-and-down, +y runs left-and-down, +z runs up. Every axis unit is exactly `s` px long.
+ *  Visible faces of a box: top, the face at y+d (left-front) and the face at x+w (right-front).
+ */
+(function (global) {
+  'use strict';
+
+  const COS30 = Math.cos(Math.PI / 6);
+  const RX = 1.2247449; // horizontal circle -> ellipse rx per (radius * scale)
+  const RY = 0.7071068; // ... and ry
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const snap = (v, s) => (s ? Math.round(v / s) * s : v);
+  const r1 = (v) => Math.round(v * 10) / 10;
+  const val = (v) => (typeof v === 'function' ? v() : v);
+  const reducedMotion = () => !!(global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  // Face shading from ONE base colour. color-mix keeps CSS variables (and therefore light/dark themes) working.
+  const mix = (c, other, pct) => `color-mix(in oklab, ${c}, ${other} ${pct}%)`;
+  const faces = (c) => ({ top: mix(c, 'white', 22), left: mix(c, 'black', 6), right: mix(c, 'black', 24), inner: mix(c, 'black', 40) });
+
+  const CSS = `
+.iso-svg{display:block;width:100%;height:auto;touch-action:pan-y;user-select:none;-webkit-user-select:none;direction:ltr}
+.iso-item{outline:none}
+.iso-edge{stroke:var(--iso-edge,rgba(20,22,32,.6));stroke-width:1.1;stroke-linejoin:round}
+.iso-item.is-hover .iso-face,.iso-item:focus-visible .iso-face{filter:brightness(1.08)}
+.iso-item.is-selected .iso-edge,.iso-item:focus-visible .iso-edge{stroke:var(--accent,#e4572e);stroke-width:2.4}
+.iso-item.is-drag{cursor:grab;touch-action:none}
+.iso-item.is-dragging{cursor:grabbing}
+.iso-item.is-pick{cursor:pointer}
+.iso-wire{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.iso-flow{stroke-dasharray:6 7;animation:iso-dash 1.1s linear infinite}
+@keyframes iso-dash{to{stroke-dashoffset:-26}}
+.iso-tag-t{font:600 13px var(--font-body,system-ui,sans-serif);fill:var(--ink,#1c1d22);unicode-bidi:plaintext}
+.iso-tag-s{font:11px var(--font-mono,ui-monospace,monospace);fill:var(--muted,#5b6070);unicode-bidi:plaintext}
+.iso-tag-line{stroke:var(--muted,#8a8f9c);stroke-width:1;fill:none}
+.iso-tag-dot{fill:var(--ink,#1c1d22)}
+@media (prefers-reduced-motion:reduce){.iso-flow{animation:none}}
+`;
+  function injectCss() {
+    if (document.getElementById('iso-kit-css')) return;
+    const st = document.createElement('style');
+    st.id = 'iso-kit-css';
+    st.textContent = CSS;
+    document.head.appendChild(st);
+  }
+
+  /* ------------------------------------------------------------------ items */
+  let uid = 0;
+  function mk(o, kind, defaults) {
+    const it = Object.assign({ kind, layer: 2, x: 0, y: 0, z: 0, color: 'var(--iso-1,#7e8aa8)', select: true }, defaults, o);
+    it.id = it.id || kind + '-' + ++uid;
+    return it;
+  }
+
+  // Solid box. hollow:true draws an open tray (bins, tanks, cups).
+  function box(o) {
+    const it = mk(o, 'box', { w: 1, d: 1, h: 1 });
+    it.key = () => it.x + it.w / 2 + it.y + it.d / 2 + (it.z + it.h / 2) * 0.5;
+    it.bounds = () => [it.x, it.y, it.z, it.x + it.w, it.y + it.d, it.z + it.h];
+    it.svg = (sc) => {
+      const { x, y, z, w, d, h } = it;
+      const f = faces(it.color);
+      const P = (a, b, c) => sc.pt(a, b, c);
+      const poly = (pts, fill, extra) => `<polygon class="iso-face iso-edge" points="${pts.join(' ')}" style="fill:${fill}" ${extra || ''}/>`;
+      let s = poly([P(x, y + d, z), P(x + w, y + d, z), P(x + w, y + d, z + h), P(x, y + d, z + h)], f.left);
+      s += poly([P(x + w, y, z), P(x + w, y + d, z), P(x + w, y + d, z + h), P(x + w, y, z + h)], f.right);
+      s += poly([P(x, y, z + h), P(x + w, y, z + h), P(x + w, y + d, z + h), P(x, y + d, z + h)], f.top);
+      if (it.hollow) {
+        const t = it.wall || 0.12;
+        s += `<polygon class="iso-edge" points="${[P(x + t, y + t, z + h), P(x + w - t, y + t, z + h), P(x + w - t, y + d - t, z + h), P(x + t, y + d - t, z + h)].join(' ')}" style="fill:${f.inner}"/>`;
+      }
+      return s;
+    };
+    return it;
+  }
+
+  // Upright cylinder (r is radius in world units).
+  function cyl(o) {
+    const it = mk(o, 'cyl', { r: 0.5, h: 1 });
+    it.key = () => it.x + it.y + (it.z + it.h / 2) * 0.5;
+    it.bounds = () => [it.x - it.r, it.y - it.r, it.z, it.x + it.r, it.y + it.r, it.z + it.h];
+    it.svg = (sc) => {
+      const [cx, yb] = sc.project(it.x, it.y, it.z);
+      const yt = sc.project(it.x, it.y, it.z + it.h)[1];
+      const rx = RX * it.r * sc.s, ry = RY * it.r * sc.s, f = faces(it.color);
+      const n = r1;
+      return `<path class="iso-face iso-edge" d="M${n(cx - rx)},${n(yt)}L${n(cx - rx)},${n(yb)}A${n(rx)},${n(ry)} 0 0 0 ${n(cx + rx)},${n(yb)}L${n(cx + rx)},${n(yt)}Z" style="fill:${f.left}"/>` +
+        `<ellipse class="iso-face iso-edge" cx="${n(cx)}" cy="${n(yt)}" rx="${n(rx)}" ry="${n(ry)}" style="fill:${f.top}"/>`;
+    };
+    return it;
+  }
+
+  // Sphere / joint / particle.
+  function ball(o) {
+    const it = mk(o, 'ball', { r: 0.4 });
+    it.key = () => it.x + it.y + it.z * 0.5 + 0.01;
+    it.bounds = () => [it.x - it.r, it.y - it.r, it.z - it.r, it.x + it.r, it.y + it.r, it.z + it.r];
+    it.svg = (sc) => {
+      const [cx, cy] = sc.project(it.x, it.y, it.z);
+      const R = RX * it.r * sc.s;
+      return `<circle class="iso-face iso-edge" cx="${r1(cx)}" cy="${r1(cy)}" r="${r1(R)}" style="fill:${faces(it.color).left}"/>` +
+        `<circle cx="${r1(cx - R * 0.3)}" cy="${r1(cy - R * 0.32)}" r="${r1(R * 0.38)}" style="fill:#fff;opacity:.35;pointer-events:none"/>`;
+    };
+    return it;
+  }
+
+  // Thick line between two 3D points: arm segments, levers, rods, springs (use many short rods), pendulums.
+  function rod(o) {
+    const it = mk(o, 'rod', { a: [0, 0, 0], b: [1, 0, 0], width: 7 });
+    it.key = () => (it.a[0] + it.b[0] + it.a[1] + it.b[1]) / 2 + (it.a[2] + it.b[2]) * 0.25;
+    it.bounds = () => [0, 1, 2].flatMap((i) => [Math.min(it.a[i], it.b[i]) - 0.05]).concat([0, 1, 2].map((i) => Math.max(it.a[i], it.b[i]) + 0.05));
+    it.svg = (sc) => {
+      const f = faces(it.color);
+      return `<path class="iso-edge" d="M${sc.pt(...it.a)}L${sc.pt(...it.b)}" style="stroke:${f.inner};stroke-width:${it.width + 2.4};stroke-linecap:round;fill:none"/>` +
+        `<path class="iso-face" d="M${sc.pt(...it.a)}L${sc.pt(...it.b)}" style="stroke:${f.top};stroke-width:${it.width};stroke-linecap:round;fill:none"/>`;
+    };
+    return it;
+  }
+
+  // Slab you stand things on. Top face at z, thickness t downward. Optional grid lines.
+  function floor(o) {
+    const it = mk(o, 'floor', { w: 10, d: 6, t: 0.3, layer: 0, select: false, grid: 1 });
+    it.key = () => 0;
+    it.svg = (sc) => {
+      const { x, y, z, w, d, t } = it, f = faces(it.color === 'var(--iso-1,#7e8aa8)' ? 'var(--floor,#e7e7e3)' : it.color);
+      const P = (a, b, c) => sc.pt(a, b, c);
+      let s = `<polygon class="iso-edge" points="${[P(x, y + d, z), P(x + w, y + d, z), P(x + w, y + d, z - t), P(x, y + d, z - t)].join(' ')}" style="fill:${f.left}"/>`;
+      s += `<polygon class="iso-edge" points="${[P(x + w, y, z), P(x + w, y + d, z), P(x + w, y + d, z - t), P(x + w, y, z - t)].join(' ')}" style="fill:${f.right}"/>`;
+      s += `<polygon class="iso-edge" points="${[P(x, y, z), P(x + w, y, z), P(x + w, y + d, z), P(x, y + d, z)].join(' ')}" style="fill:${f.top}"/>`;
+      if (it.grid) {
+        let g = '';
+        for (let i = it.grid; i < w - 1e-6; i += it.grid) g += `M${P(x + i, y, z)}L${P(x + i, y + d, z)}`;
+        for (let j = it.grid; j < d - 1e-6; j += it.grid) g += `M${P(x, y + j, z)}L${P(x + w, y + j, z)}`;
+        s += `<path d="${g}" style="stroke:var(--line,#c9c9c2);stroke-width:.7;opacity:.55;fill:none"/>`;
+      }
+      return s;
+    };
+    return it;
+  }
+
+  // Flat tinted region on the floor: sensing zones, targets, danger areas, regions of a map.
+  function zone(o) {
+    const it = mk(o, 'zone', { w: 1, d: 1, layer: 1, opacity: 0.2, select: false, outline: true });
+    it.key = () => 0;
+    it.svg = (sc) => {
+      const { x, y, z, w, d } = it;
+      return `<polygon points="${[sc.pt(x, y, z), sc.pt(x + w, y, z), sc.pt(x + w, y + d, z), sc.pt(x, y + d, z)].join(' ')}" style="fill:${it.color};fill-opacity:${val(it.opacity)};stroke:${it.color};stroke-opacity:${it.outline ? 0.7 : 0};stroke-width:1.4;stroke-dasharray:${it.dash || '5 4'}"/>`;
+    };
+    return it;
+  }
+
+  // Polyline through 3D points. flow:true animates dashes (signal / current / material flow).
+  function wire(o) {
+    const it = mk(o, 'wire', { pts: [], layer: 1, select: false, width: 2.6, flow: false, color: 'var(--iso-wire,#3a5fb0)' });
+    it.key = () => 0;
+    it.svg = (sc) => {
+      const d = it.pts.map((p, i) => (i ? 'L' : 'M') + sc.pt(p[0], p[1], p[2] || 0)).join('');
+      const fl = val(it.flow);
+      return `<path class="iso-wire ${fl ? 'iso-flow' : ''}" d="${d}" style="stroke:${it.color};stroke-width:${it.width};opacity:${val(it.opacity) == null ? 1 : val(it.opacity)};${it.dash && !fl ? 'stroke-dasharray:' + it.dash : ''}"/>`;
+    };
+    return it;
+  }
+
+  // Callout: dot on a 3D point, a leader line, a title and a mono sub-line. `at`, `text`, `sub` may be functions.
+  // Text is scaled by scene.k so it stays readable when the scene is shrunk on a phone.
+  // dy < 0 puts the text above its underline, dy > 0 puts it below (so the leader never cuts through the words).
+  function tag(o) {
+    const it = mk(o, 'tag', { at: [0, 0, 0], dx: 44, dy: -44, text: '', sub: '', layer: 5, select: false });
+    it.key = () => 1e6;
+    it.svg = (sc) => {
+      const k = sc.k || 1;
+      const at = val(it.at), t = String(val(it.text)), sub = String(val(it.sub) || '');
+      const [px, py] = sc.project(at[0], at[1], at[2] || 0);
+      const dx = it.dx * k, dy = it.dy * k, ex = px + dx, ey = py + dy;
+      const align = it.align || (dx > 4 ? 'start' : dx < -4 ? 'end' : 'middle');
+      const tw = Math.max(t.length * 7.6, sub.length * 6.8, 28) * k;
+      const dir = align === 'start' ? 1 : align === 'end' ? -1 : 0;
+      const x1 = align === 'middle' ? ex - tw / 2 : ex, x2 = align === 'middle' ? ex + tw / 2 : ex + dir * tw;
+      const tx = align === 'middle' ? ex : ex + dir * 2 * k;
+      const below = dy > 0, g = 5 * k;
+      const yT = below ? ey + g + 13 * k : ey - g - (sub ? 13 * k : 0);
+      const yS = below ? ey + g + 13 * k + 14 * k : ey - g;
+      const hot = it.color ? `style="stroke:${it.color}"` : '';
+      return `<path class="iso-tag-line" ${hot} d="M${r1(px)},${r1(py)}L${r1(ex)},${r1(ey)}M${r1(x1)},${r1(ey)}L${r1(x2)},${r1(ey)}"/>` +
+        `<circle class="iso-tag-dot" ${it.color ? `style="fill:${it.color}"` : ''} cx="${r1(px)}" cy="${r1(py)}" r="${r1(2.8 * k)}"/>` +
+        `<text class="iso-tag-t" style="font-size:${r1(13 * k)}px" text-anchor="${align}" x="${r1(tx)}" y="${r1(yT)}">${esc(t)}</text>` +
+        (sub ? `<text class="iso-tag-s" style="font-size:${r1(11 * k)}px" text-anchor="${align}" x="${r1(tx)}" y="${r1(yS)}">${esc(sub)}</text>` : '');
+    };
+    return it;
+  }
+
+  // Escape hatch: svg(scene) returns markup. Use scene.pt / scene.project inside. key() controls depth.
+  function custom(o) {
+    const it = mk(o, 'custom', {});
+    if (!it.key) it.key = () => it.x + it.y + it.z * 0.5;
+    return it;
+  }
+
+  // Draw order. Layers go back to front (0 floor, 1 decals/wires, 2 solids, 5 labels). Inside layer 2, solids that
+  // declare bounds() are ordered by a separating axis: an item entirely behind (smaller x or y) or below (smaller z)
+  // another is painted first. This is what puts a crate on top of a belt although the belt's centre is "nearer".
+  // Items without bounds (custom) and ambiguous pairs fall back to key().
+  function order(list) {
+    const groups = new Map();
+    list.forEach((i) => { if (!groups.has(i.layer)) groups.set(i.layer, []); groups.get(i.layer).push(i); });
+    const out = [];
+    [...groups.keys()].sort((a, b) => a - b).forEach((l) => {
+      const g = groups.get(l);
+      out.push(...(l === 2 ? topo(g) : g.sort((a, b) => a.key() - b.key() || a._n - b._n)));
+    });
+    return out;
+  }
+  function topo(g) {
+    const n = g.length, B = g.map((i) => (i.bounds ? i.bounds() : null)), K = g.map((i) => i.key());
+    const indeg = new Array(n).fill(0), adj = g.map(() => []), E = 1e-6;
+    const behind = (a, b) => a[3] <= b[0] + E || a[4] <= b[1] + E || a[5] <= b[2] + E;
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+      if (!B[i] || !B[j]) continue;
+      const ab = behind(B[i], B[j]), ba = behind(B[j], B[i]);
+      if (ab && !ba) { adj[i].push(j); indeg[j]++; } else if (ba && !ab) { adj[j].push(i); indeg[i]++; }
+    }
+    const done = new Array(n).fill(false), res = [];
+    const better = (i, p) => p < 0 || K[i] < K[p] || (K[i] === K[p] && g[i]._n < g[p]._n);
+    for (let c = 0; c < n; c++) {
+      let pick = -1;
+      for (let i = 0; i < n; i++) if (!done[i] && indeg[i] === 0 && better(i, pick)) pick = i;
+      if (pick < 0) for (let i = 0; i < n; i++) if (!done[i] && better(i, pick)) pick = i;   // cycle: fall back to key
+      done[pick] = true; res.push(g[pick]); adj[pick].forEach((j) => { indeg[j]--; });
+    }
+    return res;
+  }
+
+  /* ------------------------------------------------------------------ scene */
+  class Scene {
+    constructor(o) {
+      injectCss();
+      this.svg = o.svg;
+      this.s = o.scale || 40;
+      this.ox = o.ox || 0;
+      this.oy = o.oy || 0;
+      this.w = o.width || 900;
+      this.h = o.height || 520;
+      this.info = o.info || null;
+      this.items = new Map();
+      this.seq = 0;
+      this.ticks = [];
+      this.t = 0;
+      this.running = false;
+      this.hover = null;
+      this.selected = null;
+      this.drag = null;
+      this.onSelect = o.onSelect || null;
+      this.svg.classList.add('iso-svg');
+      this.svg.setAttribute('viewBox', `0 0 ${this.w} ${this.h}`);
+      this.svg.setAttribute('role', 'group');
+      if (o.label) this.svg.setAttribute('aria-label', o.label);
+      this.k = 1;
+      this._bind();
+      if ('ResizeObserver' in global) {
+        new ResizeObserver(() => {
+          const w = this.svg.clientWidth, vb = this.svg.viewBox.baseVal;
+          if (!w || !vb || !vb.width) return;
+          const k = clamp(vb.width / w, 1, 2.2);
+          if (Math.abs(k - this.k) > 0.04) { this.k = k; if (this.items.size) this.render(); }
+        }).observe(this.svg);
+      }
+      if ('IntersectionObserver' in global) {
+        this._io = new IntersectionObserver((es) => {
+          this.visible = es[es.length - 1].isIntersecting;
+          if (!this.visible) this._suspend();
+          else if (this._wantPlay) this.play();
+        });
+        this._io.observe(this.svg);
+      } else this.visible = true;
+    }
+    project(x, y, z = 0) { return [this.ox + (x - y) * COS30 * this.s, this.oy + (x + y) * 0.5 * this.s - z * this.s]; }
+    pt(x, y, z = 0) { const p = this.project(x, y, z); return r1(p[0]) + ',' + r1(p[1]); }
+    unproject(sx, sy, z = 0) {
+      const a = (sx - this.ox) / (COS30 * this.s), b = (2 * (sy - this.oy + z * this.s)) / this.s;
+      return [(a + b) / 2, (b - a) / 2];
+    }
+    add(...its) { its.flat().forEach((it) => { it._n = ++this.seq; this.items.set(it.id, it); }); return this; }
+    get(id) { return this.items.get(id); }
+    remove(id) { this.items.delete(id); return this; }
+
+    render() {
+      const act = document.activeElement;
+      const keep = act && this.svg.contains(act) && act.closest('[data-id]') ? act.closest('[data-id]').getAttribute('data-id') : null;
+      const list = [...this.items.values()].filter((i) => i.hidden !== true && !(typeof i.hidden === 'function' && i.hidden()));
+      const ordered = order(list);
+      this.svg.innerHTML = ordered.map((it) => {
+        const cls = ['iso-item', it.drag ? 'is-drag' : '', it.tip || it.pick ? 'is-pick' : '', this.hover === it.id ? 'is-hover' : '', this.selected === it.id ? 'is-selected' : '', this.drag && this.drag.id === it.id ? 'is-dragging' : ''].join(' ');
+        const interactive = it.drag || it.tip || it.pick;
+        const aria = interactive ? ` tabindex="0" role="button" aria-label="${esc(it.label || (it.tip && it.tip.title) || it.id)}"` : '';
+        return `<g class="${cls}" data-id="${esc(it.id)}"${aria}>${it.svg(this)}</g>`;
+      }).join('');
+      if (keep) { const el = this.svg.querySelector(`[data-id="${CSS_escape(keep)}"]`); if (el) el.focus({ preventScroll: true }); }
+      return this;
+    }
+
+    // Fit the viewBox to what is drawn (+ padding). Call once after the initial layout.
+    // `extra` = [[x,y,z],...] world points that must also fit (e.g. the far end of a drag range).
+    fit(pad = 28, extra = []) {
+      this.render();
+      let b;
+      try { b = this.svg.getBBox(); } catch (e) { return this; }
+      if (!b || !isFinite(b.width) || b.width === 0) return this;
+      let x0 = b.x, y0 = b.y, x1 = b.x + b.width, y1 = b.y + b.height;
+      extra.forEach((p) => { const q = this.project(p[0], p[1], p[2] || 0); x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]); y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]); });
+      this.w = Math.round(x1 - x0 + pad * 2); this.h = Math.round(y1 - y0 + pad * 2);
+      this.svg.setAttribute('viewBox', `${Math.round(x0 - pad)} ${Math.round(y0 - pad)} ${this.w} ${this.h}`);
+      return this;
+    }
+
+    select(id) {
+      this.selected = id;
+      const it = this.items.get(id);
+      if (this.info && it && it.tip) {
+        this.info.innerHTML = `<strong>${esc(it.tip.title || '')}</strong><span>${it.tip.body || ''}</span>`;
+        this.info.hidden = false;
+      }
+      if (this.onSelect) this.onSelect(it || null);
+      this.render();
+    }
+
+    /* animation */
+    tick(fn) { this.ticks.push(fn); return this; }
+    step(dt = 1 / 30) { this.t += dt; this.ticks.forEach((f) => f(dt, this.t)); this.render(); }
+    play() {
+      this._wantPlay = true;
+      if (this.running || this.visible === false) return;
+      this.running = true;
+      let last = performance.now();
+      const loop = (n) => {
+        if (!this.running) return;
+        const dt = Math.min(0.05, (n - last) / 1000); last = n;
+        this.step(dt);
+        this._raf = requestAnimationFrame(loop);
+      };
+      this._raf = requestAnimationFrame(loop);
+    }
+    pause() { this._wantPlay = false; this._suspend(); }
+    _suspend() { this.running = false; if (this._raf) cancelAnimationFrame(this._raf); }
+    get motionOk() { return !reducedMotion(); }
+
+    /* pointer + keyboard */
+    _pt(e) {
+      const m = this.svg.getScreenCTM();
+      if (!m) return [0, 0];
+      const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse());
+      return [p.x, p.y];
+    }
+    _bind() {
+      const svg = this.svg;
+      svg.addEventListener('pointerdown', (e) => {
+        const g = e.target.closest && e.target.closest('[data-id]');
+        if (!g) return;
+        const it = this.items.get(g.getAttribute('data-id'));
+        if (!it) return;
+        if (it.select !== false && (it.tip || it.pick || it.drag)) this.select(it.id);
+        if (it.drag) {
+          const plane = it.drag.plane != null ? it.drag.plane : it.z;
+          const p = this._pt(e), g0 = this.unproject(p[0], p[1], plane);
+          this.drag = { id: it.id, plane, dx: it.x - g0[0], dy: it.y - g0[1] };
+          try { svg.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+          e.preventDefault();
+          this.render();
+        }
+      });
+      svg.addEventListener('pointermove', (e) => {
+        if (this.drag) {
+          const it = this.items.get(this.drag.id); if (!it) return;
+          const p = this._pt(e), g0 = this.unproject(p[0], p[1], this.drag.plane);
+          this._moveTo(it, g0[0] + this.drag.dx, g0[1] + this.drag.dy);
+          return;
+        }
+        const g = e.target.closest && e.target.closest('[data-id]');
+        const id = g && this.items.get(g.getAttribute('data-id')) && (this.items.get(g.getAttribute('data-id')).tip || this.items.get(g.getAttribute('data-id')).drag || this.items.get(g.getAttribute('data-id')).pick) ? g.getAttribute('data-id') : null;
+        if (id !== this.hover) { this.hover = id; if (!this.running) this.render(); }
+      });
+      const end = (e) => {
+        if (!this.drag) return;
+        const it = this.items.get(this.drag.id);
+        this.drag = null;
+        try { svg.releasePointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+        if (it && it.drag.onDrop) it.drag.onDrop(it);
+        this.render();
+      };
+      svg.addEventListener('pointerup', end);
+      svg.addEventListener('pointercancel', end);
+      svg.addEventListener('pointerleave', () => { if (!this.drag && this.hover) { this.hover = null; if (!this.running) this.render(); } });
+      svg.addEventListener('keydown', (e) => {
+        const g = e.target.closest && e.target.closest('[data-id]');
+        if (!g) return;
+        const it = this.items.get(g.getAttribute('data-id'));
+        if (!it) return;
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.select(it.id); return; }
+        if (e.key === 'Escape') { this.selected = null; this.render(); return; }
+        if (it.drag) {
+          const st = it.drag.snap || 0.5;
+          // arrows follow what you see on screen: right = +x, left = -y... we map to the screen axes
+          const map = { ArrowRight: [st, 0], ArrowLeft: [-st, 0], ArrowDown: [0, st], ArrowUp: [0, -st] };
+          if (map[e.key]) { e.preventDefault(); this._moveTo(it, it.x + map[e.key][0], it.y + map[e.key][1]); }
+        }
+      });
+    }
+    _moveTo(it, x, y) {
+      const d = it.drag, b = d.bounds;
+      if (d.lock === 'x') x = it.x; if (d.lock === 'y') y = it.y;
+      x = snap(x, d.snap); y = snap(y, d.snap);
+      if (b) { x = clamp(x, b[0], b[2]); y = clamp(y, b[1], b[3]); }
+      if (x === it.x && y === it.y) return;
+      it.x = x; it.y = y;
+      if (d.onMove) d.onMove(it);
+      this.render();
+    }
+  }
+  const CSS_escape = (s) => (global.CSS && global.CSS.escape ? global.CSS.escape(s) : String(s).replace(/"/g, '\\"'));
+
+  /* --------------------------------------------------------------------- ui */
+  // Built for the page template's .ctl styles. Each helper appends to `box` and returns a handle.
+  const ui = {
+    slider(box, o) {
+      const id = 'iso-s' + ++uid, w = document.createElement('div');
+      w.className = 'ctl ctl-slider';
+      w.innerHTML = `<label for="${id}"><span class="ctl-name">${esc(o.label)}</span><output class="ctl-val" for="${id}"></output></label><input id="${id}" type="range" min="${o.min}" max="${o.max}" step="${o.step || 1}" value="${o.value}">`;
+      const inp = w.querySelector('input'), out = w.querySelector('output'), f = o.fmt || ((v) => v);
+      const upd = () => { out.textContent = f(+inp.value) + (o.unit ? (/^[°%]/.test(o.unit) ? '' : ' ') + o.unit : ''); inp.style.setProperty('--p', ((inp.value - o.min) / (o.max - o.min)) * 100 + '%'); };
+      inp.addEventListener('input', () => { upd(); if (o.onInput) o.onInput(+inp.value); });
+      upd(); box.appendChild(w);
+      return { el: w, input: inp, get value() { return +inp.value; }, set(v, silent) { inp.value = v; upd(); if (!silent && o.onInput) o.onInput(+inp.value); } };
+    },
+    segmented(box, o) {
+      const w = document.createElement('div');
+      w.className = 'ctl ctl-seg';
+      w.setAttribute('role', 'radiogroup');
+      w.setAttribute('aria-label', o.label || '');
+      w.innerHTML = (o.label ? `<span class="ctl-name">${esc(o.label)}</span>` : '') + '<div class="seg">' + o.options.map((op) => `<button type="button" role="radio" data-v="${esc(op.v)}" aria-checked="false">${esc(op.t)}</button>`).join('') + '</div>';
+      const btns = [...w.querySelectorAll('button')];
+      let cur = o.value;
+      const set = (v, silent) => { cur = v; btns.forEach((b) => b.setAttribute('aria-checked', String(b.dataset.v === String(v)))); if (!silent && o.onChange) o.onChange(v); };
+      btns.forEach((b) => b.addEventListener('click', () => set(o.options.find((x) => String(x.v) === b.dataset.v).v)));
+      set(cur, true); box.appendChild(w);
+      return { el: w, get value() { return cur; }, set };
+    },
+    toggle(box, o) {
+      const id = 'iso-t' + ++uid, w = document.createElement('div');
+      w.className = 'ctl ctl-toggle';
+      w.innerHTML = `<label for="${id}"><input id="${id}" type="checkbox" ${o.value ? 'checked' : ''}><span class="sw" aria-hidden="true"></span><span class="ctl-name">${esc(o.label)}</span></label>`;
+      const inp = w.querySelector('input');
+      inp.addEventListener('change', () => o.onChange && o.onChange(inp.checked));
+      box.appendChild(w);
+      return { el: w, get value() { return inp.checked; }, set(v, silent) { inp.checked = !!v; if (!silent && o.onChange) o.onChange(!!v); } };
+    },
+    button(box, o) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn ' + (o.kind || ''); b.textContent = o.label;
+      b.addEventListener('click', () => o.onClick && o.onClick(b));
+      box.appendChild(b);
+      return { el: b, label(t) { b.textContent = t; } };
+    },
+    readout(box, o) {
+      const w = document.createElement('div');
+      w.className = 'ctl ctl-read';
+      w.innerHTML = `<span class="ctl-name">${esc(o.label)}</span><output class="ctl-val big" aria-live="polite"></output>`;
+      const out = w.querySelector('output');
+      box.appendChild(w);
+      return { el: w, set(text, state) { out.textContent = text; w.dataset.state = state || ''; } };
+    },
+    // "What to notice": ticks off when the learner actually does the thing.
+    checklist(box, items, onAll) {
+      const ul = document.createElement('ul');
+      ul.className = 'notice-list';
+      ul.innerHTML = items.map((i) => `<li data-id="${esc(i.id)}" data-done="false"><span class="tick" aria-hidden="true"></span><span>${i.text}</span></li>`).join('');
+      box.appendChild(ul);
+      const done = new Set();
+      return { done(id) { if (done.has(id)) return; done.add(id); const li = ul.querySelector(`[data-id="${CSS_escape(id)}"]`); if (li) li.dataset.done = 'true'; if (done.size === items.length && onAll) onAll(); }, get count() { return done.size; } };
+    },
+    // Predict first, then play. Never locks the controls; it only asks the learner to commit to a guess.
+    predict(box, o) {
+      const LB = (typeof Lecture !== 'undefined' && Lecture.labels) || {};   // page-level labels (localised by build.py)
+      const w = document.createElement('div');
+      w.className = 'predict';
+      w.innerHTML = `<p class="predict-q"><span class="predict-k">${esc(o.kicker || LB.predict || 'Predict')}</span> ${o.q}</p><div class="predict-opts">${o.options.map((op, i) => `<button type="button" data-i="${i}">${op.t}</button>`).join('')}</div><p class="predict-why" hidden></p>`;
+      box.appendChild(w);
+      const why = w.querySelector('.predict-why');
+      w.querySelectorAll('.predict-opts button').forEach((b) => b.addEventListener('click', () => {
+        const op = o.options[+b.dataset.i];
+        w.querySelectorAll('.predict-opts button').forEach((x) => { x.disabled = true; x.dataset.ok = String(!!o.options[+x.dataset.i].ok); });
+        b.dataset.picked = 'true';
+        why.hidden = false; why.innerHTML = '<strong>' + esc(op.ok ? (LB.yes || 'Yes.') : (LB.no || 'Not quite.')) + '</strong> ' + (op.why || o.why || '');
+        if (o.onAnswer) o.onAnswer(!!op.ok);
+      }));
+      return { el: w };
+    },
+  };
+
+  global.Iso = { Scene, box, cyl, ball, rod, floor, zone, wire, tag, custom, ui, faces, mix, esc, clamp, snap, reducedMotion };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+/* ---- lecture runtime ---- */
+const SOURCES = {"S3": {"text": "A controller compares a measured value with a target value and decides how hard to push the system. The difference between the target and the measured value is called the error.", "d": "keep"}, "S4": {"text": "So, as I said, the error is simply the target minus the measured value. If the target is 50 degrees and the room is at 42 degrees, the error is 8 degrees. I think that is pretty clear, but let me say it once more: error equals target minus measured.", "d": "reword"}, "S5": {"text": "The proportional term\nA proportional controller sets its output proportional to the error: output = Kp × error, where Kp is called the proportional gain.", "d": "keep"}, "S6": {"text": "You can think of Kp as a volume knob. A bigger Kp means a louder response to the same error. Some of you may have a hi-fi at home and know that if you turn the volume knob up, the music gets louder. It is the same idea here, really, the louder the response, the harder the heater pushes.", "d": "reword"}, "S8": {"text": "With Kp = 2 and an error of 8 degrees, the output is 16 units of heater power. With Kp = 5 the same error gives 40 units.", "d": "keep"}, "S9": {"text": "A larger gain makes the system react faster, but only up to a point.", "d": "keep"}, "S10": {"text": "When the gain is too high\nIf the gain is too high the system overshoots the target and starts to oscillate around it. Warning: in a real heater this can damage the equipment, so never raise the gain without a safety limit. This will be on the exam.", "d": "keep"}, "S11": {"text": "Let me explain why it oscillates. The controller pushes hard because the gain is high. The system gets past the target because of its inertia. Now the error has the opposite sign, so the controller pushes back just as hard. This repeats, and the temperature swings above and below the target. The overshoot, then, is the amount by which the system passes the target, and oscillation is the repeated swing.", "d": "keep"}, "S13": {"text": "In practice, engineers pick Kp by trial: start low, raise it until the response is fast, and stop just before oscillation begins. For the heater in the lab, oscillation starts at about Kp = 8.", "d": "keep"}};
+const Lecture = (function(){
+  const reg = {}; const inited = new Set();
+  return { sources: SOURCES, labels: {"nav": "Contents", "source": "From the lecture", "close": "Close", "predict": "Predict", "yes": "Yes.", "no": "Not quite.", "interactive": "Interactive", "show_source": "Show source", "chip_source": "Source", "static_note": "Static view. Open this file in a browser for the live version.", "chip_proofs": "{n} interactive proof{s}", "chip_sections": "{n} section{s}", "d_keep": "As in the lecture", "d_reword": "Reworded for clarity. Original wording below", "trim_title": "What was trimmed", "trim_sub": "{keep} kept as is · {reword} reworded · {cut} cut", "trim_note": "Everything cut from the lecture is listed here with the reason, so nothing is hidden.", "judgment": "Judgment call", "cat_redundant": "Redundant", "cat_over-explained": "Over-explained", "cat_filler": "Filler", "cat_digression": "Digression", "cat_admin": "Admin"}, figure(id, fn){ reg[id] = fn; }, _reg: reg, _inited: inited,
+    initAll(){ document.querySelectorAll('[data-figure]').forEach(initFigure); } };
+})();
+</script>
+<script>
+/* 01-gain-sweep.js */
+Lecture.figure('gain-sweep', (ctx) => {
+  const svg = ctx.svg, W = 480, H = 320, m = { l: 36, r: 12, t: 40, b: 34 };
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', 'Temperature over time for the chosen gain, with the 50 degree target marked');
+
+  const START = 42, TARGET = 50, ERROR = TARGET - START;   // lecture S4
+  const T_MAX = 40, TEMP_MIN = 34, TEMP_MAX = 66;
+  // Illustrative model: output reaches the room after a delay. Chosen so sustained swinging begins at Kp = 8 (lecture S13).
+  const DELAY = 1, RATE = Math.PI / (2 * 8 * DELAY), DT = 0.01;
+  const simulate = (kp) => {
+    const lag = Math.round(DELAY / DT), steps = Math.round(T_MAX / DT);
+    const temp = [START], out = new Array(lag).fill(0);
+    for (let i = 0; i < steps; i++) {
+      const t = temp[temp.length - 1];
+      out.push(kp * (TARGET - t));
+      temp.push(t + RATE * out[i] * DT);
+    }
+    return temp;
+  };
+  const X = (t) => m.l + (t / T_MAX) * (W - m.l - m.r);
+  const Y = (v) => H - m.b - ((Math.min(TEMP_MAX, Math.max(TEMP_MIN, v)) - TEMP_MIN) / (TEMP_MAX - TEMP_MIN)) * (H - m.t - m.b);
+
+  let kp = 5;
+  const list = Iso.ui.checklist(ctx.notice, [
+    { id: 'slow', text: 'Set Kp to 2: the temperature reaches the target without passing it.' },
+    { id: 'past', text: 'Set Kp to 5: the response is faster, and it passes the target before settling.' },
+    { id: 'swing', text: 'Set Kp to 8: the swing no longer dies away.' },
+  ]);
+  Iso.ui.predict(ctx.predict, {
+    q: 'A larger gain makes the system react faster. So is the largest gain always the best?',
+    options: [
+      { t: 'Yes, faster is better', why: 'Faster, but only up to a point. Past it, the system overshoots and oscillates.' },
+      { t: 'No, it starts to swing', ok: true, why: 'Move the slider to see where.' },
+    ],
+  });
+  const output$ = Iso.ui.readout(ctx.controls, { label: 'Output for an 8 degree error' });
+  const behaviour$ = Iso.ui.readout(ctx.controls, { label: 'Response' });
+
+  const draw = () => {
+    const temp = simulate(kp);
+    const step = Math.max(1, Math.round(0.1 / DT));
+    let d = '';
+    for (let i = 0; i < temp.length; i += step) d += (i ? 'L' : 'M') + X(i * DT).toFixed(1) + ',' + Y(temp[i]).toFixed(1);
+    const peak = Math.max(...temp) - TARGET;
+    const late = temp.slice(Math.round(temp.length * 0.75));
+    const swing = Math.max(...late) - Math.min(...late);
+    svg.innerHTML =
+      `<path d="M${m.l},${Y(TEMP_MIN)}H${W - m.r}M${m.l},${Y(TEMP_MIN)}V${m.t}" style="stroke:var(--muted);fill:none"/>` +
+      `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(TARGET)}" y2="${Y(TARGET)}" style="stroke:var(--ink);stroke-dasharray:6 5"/>` +
+      `<text x="${m.l}" y="20" style="fill:var(--ink);font:600 15px var(--font-body)">Dashed line: target, 50 degrees. Start: 42.</text>` +
+      `<path d="${d}" style="stroke:var(--accent);stroke-width:3;fill:none;stroke-linejoin:round"/>` +
+      `<text x="${(m.l + W - m.r) / 2}" y="${H - 10}" text-anchor="middle" style="fill:var(--muted);font:500 15px var(--font-body)">Time</text>` +
+      `<text transform="translate(20 ${(m.t + H - m.b) / 2}) rotate(-90)" text-anchor="middle" style="fill:var(--muted);font:500 15px var(--font-body)">Temperature</text>`;
+    output$.set(`${(kp * ERROR).toFixed(0)} units of heater power`, 'ok');
+    if (peak < 0.2) behaviour$.set('Reaches the target without passing it', 'ok');
+    else if (swing < 0.6) behaviour$.set('Overshoots, then settles', 'warn');
+    else behaviour$.set('Keeps swinging: oscillation', 'bad');
+    if (kp === 2) list.done('slow');
+    if (kp === 5) list.done('past');
+    if (kp === 8) list.done('swing');
+  };
+
+  Iso.ui.slider(ctx.controls, { label: 'Proportional gain, Kp', min: 1, max: 10, step: 1, value: kp, onInput: (v) => { kp = v; draw(); } });
+  Iso.ui.button(ctx.controls, { label: 'Reset', onClick: () => { kp = 5; const r = ctx.controls.querySelector('input[type=range]'); r.value = kp; r.dispatchEvent(new Event('input', { bubbles: true })); } });
+  draw();
+});
+
+</script>
+<script>
+(function(){
+  const $ = (s, r=document) => r.querySelector(s), $$ = (s, r=document) => [...r.querySelectorAll(s)];
+  const store = { get(k){ try{return localStorage.getItem(k)}catch(e){return null} }, set(k,v){ try{localStorage.setItem(k,v)}catch(e){} } };
+  const body = document.body, wide = matchMedia('(min-width:921px)');
+
+  /* nav: the list is written by build.py, so it also works in viewers that run no JavaScript */
+  const list = $('#navList');
+  const navBtn = $('#navBtn');
+  function setNav(open){
+    if(wide.matches){ body.classList.toggle('nav-collapsed', !open); store.set('nav', open ? 'open' : 'closed'); }
+    else body.classList.toggle('nav-open', open);
+    navBtn.setAttribute('aria-expanded', String(open));
+  }
+  const isOpen = () => wide.matches ? !body.classList.contains('nav-collapsed') : body.classList.contains('nav-open');
+  navBtn.addEventListener('click', () => setNav(!isOpen()));
+  $('#scrim').addEventListener('click', () => setNav(false));
+  list.addEventListener('click', e => { if(e.target.closest('a') && !wide.matches) setNav(false); });
+  if(wide.matches && store.get('nav') === 'closed') body.classList.add('nav-collapsed'); else navBtn.setAttribute('aria-expanded', String(wide.matches));
+
+  /* theme */
+  const root = document.documentElement;
+  const saved = store.get('theme'); if(saved) root.dataset.theme = saved;
+  $('#themeBtn').addEventListener('click', () => {
+    const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme:dark)').matches;
+    root.dataset.theme = dark ? 'light' : 'dark'; store.set('theme', root.dataset.theme);
+  });
+
+  /* progress + scroll-spy */
+  const bar = $('#bar');
+  const onScroll = () => { const h = document.documentElement; const p = h.scrollTop / Math.max(1, h.scrollHeight - h.clientHeight); bar.style.width = (Math.min(1, p) * 100) + '%'; };
+  addEventListener('scroll', onScroll, {passive:true}); onScroll();
+  const links = new Map($$('a', list).map(a => [a.getAttribute('href').slice(1), a]));
+  if('IntersectionObserver' in window){
+    const io = new IntersectionObserver(es => es.forEach(e => { if(e.isIntersecting){ links.forEach(a => a.removeAttribute('aria-current')); const a = links.get(e.target.id); if(a){ a.setAttribute('aria-current','true'); } } }), {rootMargin:'-20% 0px -70% 0px'});
+    $$('main section[id], main h3[id]').forEach(s => io.observe(s));
+  }
+
+  /* source chips + drawer: every [data-src] block is traceable to the lecture */
+  const dlg = $('#srcDlg'), sb = $('#srcBody');
+  const closeDlg = () => dlg.close ? dlg.close() : dlg.removeAttribute('open');
+  $('#srcClose').addEventListener('click', closeDlg);
+  dlg.addEventListener('click', e => { if(e.target === dlg) closeDlg(); });
+  const norm = s => s.normalize('NFKD').replace(/[ً-ٰٟـ]/g,'').toLowerCase();
+  function openSources(ids, quote){
+    sb.innerHTML = '';
+    ids.forEach(id => {
+      const s = SOURCES[id]; const d = document.createElement('div'); d.className = 'src-item';
+      if(!s){ d.textContent = id + ' (missing)'; sb.appendChild(d); return; }
+      if(s.d){ const bd = document.createElement('span'); bd.className = 'badge'; bd.textContent = s.d === 'reword' ? Lecture.labels.d_reword : Lecture.labels.d_keep; d.appendChild(bd); }
+      let txt = s.text, i = quote ? norm(txt).indexOf(norm(quote)) : -1;
+      if(i >= 0 && norm(txt).length === txt.length){ d.append(txt.slice(0,i)); const m = document.createElement('mark'); m.textContent = txt.slice(i, i+quote.length); d.appendChild(m); d.append(txt.slice(i+quote.length)); }
+      else d.append(txt);
+      sb.appendChild(d);
+    });
+    if(dlg.showModal) dlg.showModal(); else dlg.setAttribute('open','');
+  }
+  function addChip(el){
+    if(el.dataset.chip) return; el.dataset.chip = '1';
+    const ids = el.dataset.src.split(',').map(s => s.trim()).filter(Boolean); if(!ids.length) return;
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'src-chip';
+    b.textContent = (Lecture.labels.chip_source || 'Source') + (ids.length > 1 ? ' +' + (ids.length-1) : '');
+    b.setAttribute('aria-label', Lecture.labels.show_source || 'Show source');
+    b.addEventListener('click', ev => { ev.stopPropagation(); openSources(ids, el.dataset.quote); });
+    const host = el.matches('figure') ? $('.fig-head', el) || el : el; host.appendChild(b);
+  }
+
+  /* figures: skeleton is generated so authors only write <figure data-figure data-title data-src> + <figcaption> */
+  window.initFigure = function initFigure(fig){
+    const id = fig.dataset.figure; if(Lecture._inited.has(id)) return; Lecture._inited.add(id);
+    const cap = $('figcaption', fig);
+    const head = document.createElement('div'); head.className = 'fig-head';
+    head.innerHTML = '<div class="eyebrow"></div><h3></h3>'; $('.eyebrow', head).textContent = fig.dataset.kicker || Lecture.labels.interactive || 'Interactive'; $('h3', head).textContent = fig.dataset.title || '';
+    const predict = document.createElement('div'); predict.className = 'predict-slot';
+    const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    const stage = document.createElement('div'); stage.className = 'stage'; stage.appendChild(svg);
+    const info = document.createElement('div'); info.className = 'info'; info.hidden = true; info.setAttribute('aria-live','polite');
+    const controls = document.createElement('div'); controls.className = 'controls';
+    const notice = document.createElement('div'); notice.className = 'notice';
+    fig.textContent = ''; fig.append(head, predict, stage, info, controls, notice); if(cap) fig.appendChild(cap);
+    fig.dataset.src && addChip(fig);
+    const fn = Lecture._reg[id];
+    if(!fn){ console.error('No figure code registered for', id); stage.innerHTML = '<div class="fig-fail">Interactive unavailable.</div>'; return; }
+    const ctx = { root: fig, svg, stage, info, controls, notice, predict,
+      scene(o){ return new Iso.Scene(Object.assign({ svg, info, label: fig.dataset.title }, o)); } };
+    try { fn(ctx); fig.dataset.ready = '1'; } catch(err){ console.error('Figure "'+id+'" failed:', err); stage.innerHTML = '<div class="fig-fail">Interactive unavailable.</div>'; }
+  };
+  const figs = $$('[data-figure]');
+  if('IntersectionObserver' in window){
+    const fio = new IntersectionObserver(es => es.forEach(e => { if(e.isIntersecting){ initFigure(e.target); fio.unobserve(e.target); } }), {rootMargin:'300px 0px'});
+    figs.forEach(f => fio.observe(f));
+  } else figs.forEach(initFigure);
+  $$('[data-src]').forEach(el => { if(!el.matches('[data-figure]')) addChip(el); });
+})();
+</script>
+</body>
+</html>
