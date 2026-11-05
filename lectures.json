@@ -1,5 +1,12 @@
 [
   {
+    "slug": "endocrine-diseases-part-1",
+    "title": "Endocrine diseases, part I",
+    "description": "Thyroid, pituitary and adrenal disorders: hyperthyroidism, hypothyroidism, acromegaly, Cushing syndrome, hyperaldosteronism and adrenal insufficiency.",
+    "lang": "en",
+    "updated": "2026-11-05"
+  },
+  {
     "slug": "proportional-control",
     "title": "Proportional control",
     "description": "Explain how a proportional controller sets its output, and why too much gain makes the system swing.",
